@@ -162,7 +162,7 @@ class LRUKReplacer {
   std::unordered_map<frame_id_t, std::list<LRUKNode>::iterator> node_store_;
   size_t current_timestamp_{0};
   size_t curr_size_{0};
-  size_t replacer_size_;
+  [[maybe_unused]] size_t replacer_size_;
   size_t k_;
   std::mutex latch_;
 };

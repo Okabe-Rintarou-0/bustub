@@ -62,15 +62,16 @@ void LRUKReplacer::RecordAccess(frame_id_t frame_id, [[maybe_unused]] AccessType
   // If node does not exist, create and insert it into the list
   if (node_store_.count(frame_id) == 0) {
     // Evict or it will exceed the maximum size
-    if (curr_size_ == replacer_size_) {
-      Evict(nullptr);
-    }
+    // if (curr_size_ == replacer_size_) {
+    //   Evict(nullptr);
+    // }
 
     access_list_.emplace_front(frame_id);
     auto node_iter = access_list_.begin();
     // Store the new node
     node_store_[frame_id] = node_iter;
     node_iter->k_timestamp_ = current_timestamp_;
+    node_iter->fid_ = frame_id;
     node_iter->history_.push_back(current_timestamp_);
   } else {
     auto node_iter = node_store_[frame_id];

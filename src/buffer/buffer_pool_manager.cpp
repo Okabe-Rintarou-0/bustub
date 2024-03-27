@@ -36,48 +36,43 @@ BufferPoolManager::~BufferPoolManager() { delete[] pages_; }
 
 auto BufferPoolManager::NewPage(page_id_t *page_id) -> Page * {
   std::unique_lock<std::mutex> lock(latch_);
-  // If there exists some free pages
   frame_id_t fid;
   page_id_t old_pid;
   Page *page = nullptr;
+  // If there exists some free pages
   if (!free_list_.empty()) {
     fid = free_list_.front();
     free_list_.pop_front();
     page = &pages_[fid];
+    page->WLatch();
   }
   // Otherwise, Check if there exists some evictable page
-  if (replacer_->Evict(&fid)) {
+  else if (replacer_->Evict(&fid)) {
     page = &pages_[fid];
-    page->RLatch();
+    page->WLatch();
     old_pid = page->page_id_;
-    bool is_dirty = page->IsDirty();
-    page->RUnlatch();
-
     // Flush the evicted page if it's dirty
-    if (is_dirty) {
-      lock.unlock();
-      FlushPage(old_pid);
-      lock.lock();
+    if (page->is_dirty_) {
+      FlushPageInner(old_pid, false);
     }
     // Old page has been evicted
     page_table_.erase(old_pid);
-  }
-  if (page != nullptr) {
-    page_id_t new_pid = AllocatePage();
-    page_table_[new_pid] = fid;
-    // std::cout << "Reset Memory because of NewPage" << std::endl;
-    page->WLatch();
-    page->ResetMemory();
-    page->page_id_ = new_pid;
-    page->pin_count_ = 1;
-    page->WUnlatch();
-    *page_id = new_pid;
-    // Mark as not evicatable
-    replacer_->SetEvictable(fid, false);
-    replacer_->RecordAccess(fid);
   } else {
     *page_id = INVALID_PAGE_ID;
+    return nullptr;
   }
+
+  page_id_t new_pid = AllocatePage();
+  page_table_[new_pid] = fid;
+  page->ResetMemory();
+  page->page_id_ = new_pid;
+  page->pin_count_ = 1;
+  page->WUnlatch();
+  *page_id = new_pid;
+  // Mark as not evicatable
+  replacer_->RecordAccess(fid);
+  replacer_->SetEvictable(fid, false);
+
   return page;
 }
 
@@ -92,49 +87,44 @@ auto BufferPoolManager::FetchPage(page_id_t page_id, [[maybe_unused]] AccessType
   if (page_table_.count(page_id) > 0) {
     fid = page_table_[page_id];
     replacer_->RecordAccess(fid);
-    return &pages_[fid];
+    replacer_->SetEvictable(fid, false);
+    page = &pages_[fid];
+    page->WLatch();
+    page->pin_count_ += 1;
+    page->WUnlatch();
+    return page;
   }
 
   if (!free_list_.empty()) {
     fid = free_list_.front();
     free_list_.pop_front();
     page = &pages_[fid];
+    page->WLatch();
   }
   // Otherwise, Check if there exists some evictable page
-  if (replacer_->Evict(&fid)) {
+  else if (replacer_->Evict(&fid)) {
     page = &pages_[fid];
-    page->RLatch();
+    page->WLatch();
     page_id_t old_pid = page->page_id_;
-    bool is_dirty = page->IsDirty();
-    page->RUnlatch();
-
     // Flush the evicted page if it's dirty
-    if (is_dirty) {
-      lock.unlock();
-      FlushPage(old_pid);
-      lock.lock();
+    if (page->is_dirty_) {
+      FlushPageInner(old_pid, false);
     }
-
     // Old page has been evicted
     page_table_.erase(old_pid);
-  }
-
-  if (page == nullptr) {
+  } else {
     return nullptr;
   }
   page_table_[page_id] = fid;
-  lock.unlock();
 
   // Mark as not evicatable
-  replacer_->SetEvictable(fid, false);
   replacer_->RecordAccess(fid);
+  replacer_->SetEvictable(fid, false);
 
   DiskRequest r;
-  page->WLatch();
   page->page_id_ = page_id;
   page->pin_count_ = 1;
   r.data_ = page->data_;
-  page->WUnlatch();
 
   r.is_write_ = false;
   r.page_id_ = page_id;
@@ -145,7 +135,7 @@ auto BufferPoolManager::FetchPage(page_id_t page_id, [[maybe_unused]] AccessType
   // Schedule disk request
   disk_scheduler_->Schedule(std::move(r));
   future.wait();
-  // std::cout << "Fetch " << page_id << ": " << r.data_ << std::endl;
+  page->WUnlatch();
   return page;
 }
 
@@ -158,44 +148,45 @@ auto BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty, [[maybe_unus
   // Otherwise, get the page
   frame_id_t fid = page_table_[page_id];
   Page *page = &pages_[fid];
-  page->RLatch();
+  page->WLatch();
   size_t pin_count = page->pin_count_;
-  page->RUnlatch();
   // If the page's pin count is already 0, return false
   if (pin_count == 0) {
+    page->WUnlatch();
     return false;
   }
 
-  page->WLatch();
   // Mark whether it's dirty;
-  page->is_dirty_ = is_dirty;
+  page->is_dirty_ |= is_dirty;
   page->pin_count_--;
-  page->WUnlatch();
-  // It should be evictable
-  // We can flush it when we evict it if it's dirty, but not now.
-  if (pin_count - 1 == 0) {
+  if (page->pin_count_ == 0) {
+    // It should be evictable
+    // We can flush it when we evict it if it's dirty, but not now.
     replacer_->SetEvictable(fid, true);
   }
+  page->WUnlatch();
   return true;
 }
 
 auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
-  std::unique_lock<std::mutex> lock(latch_);
+  std::lock_guard<std::mutex> guard(latch_);
+  return FlushPageInner(page_id, true);
+}
+
+auto BufferPoolManager::FlushPageInner(page_id_t page_id, bool need_lock) -> bool {
   // No such page, return false
   if (page_id == INVALID_PAGE_ID || page_table_.count(page_id) == 0) {
-    lock.unlock();
     return false;
   }
-
   frame_id_t fid = page_table_[page_id];
   Page *page = &pages_[fid];
-  lock.unlock();
   // Write into disk
   DiskRequest r;
-  page->WLatch();
+  if (need_lock) {
+    page->WLatch();
+  }
   page->is_dirty_ = false;
   r.data_ = page->data_;
-  page->WUnlatch();
   r.is_write_ = true;
   r.page_id_ = page_id;
   r.callback_ = disk_scheduler_->CreatePromise();
@@ -203,13 +194,16 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
 
   disk_scheduler_->Schedule(std::move(r));
   future.wait();
-  // std::cout << "Flush " << page_id << ": " << r.data_ << std::endl;
+  if (need_lock) {
+    page->WUnlatch();
+  }
   return true;
 }
 
 void BufferPoolManager::FlushAllPages() {
+  std::lock_guard<std::mutex> guard(latch_);
   for (const auto &[pid, _] : page_table_) {
-    FlushPage(pid);
+    FlushPageInner(pid, true);
   }
 }
 
@@ -221,8 +215,8 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
   }
   frame_id_t fid = page_table_[page_id];
   Page *page = &pages_[fid];
-  // std::cout << "Reset Memory because of DeletePage" << std::endl;
   page->WLatch();
+  page->page_id_ = INVALID_PAGE_ID;
   page->ResetMemory();
   // It's pinned, cannot be deleted
   if (page->pin_count_ > 0) {
