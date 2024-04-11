@@ -18,6 +18,10 @@ namespace bustub {
 
 void ExtendibleHTableHeaderPage::Init(uint32_t max_depth) {
     max_depth_ = max_depth;
+    size_t max_size = MaxSize();
+    for (size_t i = 0; i < max_size; i++) {
+        directory_page_ids_[i] = -1;
+    }
 }
 
 auto ExtendibleHTableHeaderPage::HashToDirectoryIndex(uint32_t hash) const
