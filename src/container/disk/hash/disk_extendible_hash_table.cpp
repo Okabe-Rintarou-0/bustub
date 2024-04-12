@@ -59,7 +59,6 @@ auto DiskExtendibleHashTable<K, V, KC>::GetValue(const K& key,
                                                  std::vector<V>* result,
                                                  Transaction* transaction) const
     -> bool {
-    // std::cout << "Get value of " << key << std::endl;
     ReadPageGuard header_guard = bpm_->FetchPageRead(header_page_id_);
     auto header_page = header_guard.As<ExtendibleHTableHeaderPage>();
     uint32_t hash = Hash(key);
@@ -67,8 +66,6 @@ auto DiskExtendibleHashTable<K, V, KC>::GetValue(const K& key,
     page_id_t directory_page_id =
         header_page->GetDirectoryPageId(directory_idx);
     if (directory_page_id == -1) {
-        // std::cout << "Get value of " << key << "failed, no such directory"
-        //           << std::endl;
         return false;
     }
 
@@ -76,11 +73,7 @@ auto DiskExtendibleHashTable<K, V, KC>::GetValue(const K& key,
     auto directory_page = directory_guard.As<ExtendibleHTableDirectoryPage>();
     uint32_t bucket_idx = directory_page->HashToBucketIndex(hash);
     page_id_t bucket_page_id = directory_page->GetBucketPageId(bucket_idx);
-    // std::cout << "get bucket idx: " << bucket_idx
-    //           << " page id: " << bucket_page_id << std::endl;
     if (bucket_page_id == -1) {
-        std::cout << "Get value of " << key << "failed, no such bucket"
-                  << std::endl;
         return false;
     }
 
@@ -103,7 +96,6 @@ auto DiskExtendibleHashTable<K, V, KC>::Insert(const K& key,
                                                const V& value,
                                                Transaction* transaction)
     -> bool {
-    // std::cout << "Insert " << key << " -> " << value << std::endl;
     WritePageGuard header_guard = bpm_->FetchPageWrite(header_page_id_);
     auto header_page = header_guard.AsMut<ExtendibleHTableHeaderPage>();
     uint32_t hash = Hash(key);
@@ -164,21 +156,15 @@ auto DiskExtendibleHashTable<K, V, KC>::InsertToNewDirectory(
     uint32_t hash,
     const K& key,
     const V& value) -> bool {
-    // std::cout << "Insert to new directory: " << directory_idx << std::endl;
     page_id_t directory_page_id;
 
     BasicPageGuard guard = bpm_->NewPageGuarded(&directory_page_id);
-    // std::cout << "Insert to new directory get write lock: " <<
-    // directory_page_id
-    //           << " " << key << "->" << value << std::endl;
     WritePageGuard directory_guard = guard.UpgradeWrite();
-    // std::cout << "Insert to new directory get write lock" << std::endl;
     auto directory_page =
         directory_guard.AsMut<ExtendibleHTableDirectoryPage>();
     directory_page->Init(directory_max_depth_);
     InsertToNewBucket(directory_page, 0, key, value);
     header->SetDirectoryPageId(directory_idx, directory_page_id);
-    // std::cout << "Insert to new directory end" << directory_idx << std::endl;
     return true;
 }
 
@@ -188,19 +174,14 @@ auto DiskExtendibleHashTable<K, V, KC>::InsertToNewBucket(
     uint32_t bucket_idx,
     const K& key,
     const V& value) -> bool {
-    // std::cout << "Insert to new bucket: " << bucket_idx << std::endl;
     page_id_t bucket_page_id;
     BasicPageGuard guard = bpm_->NewPageGuarded(&bucket_page_id);
-    // std::cout << "Insert to bucket get write page: " << bucket_page_id
-    //   << std::endl;
     WritePageGuard bucket_guard = guard.UpgradeWrite();
-    // std::cout << "Insert to bucket get write lock" << std::endl;
     auto bucket_page =
         bucket_guard.AsMut<ExtendibleHTableBucketPage<K, V, KC>>();
     bucket_page->Init(bucket_max_size_);
     bucket_page->Insert(key, value, cmp_);
     directory->SetBucketPageId(bucket_idx, bucket_page_id);
-    // std::cout << "Insert to bucket end" << std::endl;
     return true;
 }
 
@@ -209,7 +190,6 @@ void DiskExtendibleHashTable<K, V, KC>::SplitBucket(
     ExtendibleHTableDirectoryPage* directory,
     ExtendibleHTableBucketPage<K, V, KC>* old_bucket,
     uint32_t bucket_idx) {
-    // std::cout << "Split bucket at bucket_idx: " << bucket_idx << std::endl;
     uint32_t local_depth = directory->GetLocalDepth(bucket_idx);
     uint32_t old_mask = directory->GetLocalDepthMask(bucket_idx);
     uint32_t old_pattern = bucket_idx & old_mask;
@@ -228,27 +208,13 @@ void DiskExtendibleHashTable<K, V, KC>::SplitBucket(
     for (uint32_t i = 0; i < rest_bits; i++) {
         new_bucket_idx = (i << local_depth) + new_pattern;
         old_bucket_idx = (i << local_depth) + old_pattern;
-        // std::cout << "SplitBucket set Bucket page id: " << new_bucket_idx
-        //           << "->" << new_bucket_page_id << std::endl;
-        // std::cout << "Now local depth: " << local_depth << " and global depth
-        // "
-        //           << global_depth << std::endl;
-        // std::cout << "old_bucket_idx: " << old_bucket_idx << std::endl;
         directory->SetBucketPageId(new_bucket_idx, new_bucket_page_id);
         directory->SetLocalDepth(new_bucket_idx, local_depth);
         directory->SetLocalDepth(old_bucket_idx, local_depth);
-        // std::cout << "set new " << new_bucket_idx
-        //           << "'slocal depth: " << local_depth << std::endl;
-        // std::cout << "set old " << old_bucket_idx
-        //           << "'slocal depth: " << local_depth << std::endl;
     }
-    // std::cout << "migrate old_bucket_idx: " << old_bucket_idx << " to "
-    //           << new_bucket_idx << std::endl;
     new_bucket->Init(bucket_max_size_);
     uint32_t new_mask = directory->GetLocalDepthMask(new_bucket_idx);
     MigrateEntries(old_bucket, new_bucket, new_bucket_idx, new_mask);
-    // std::cout << "Split bucket end at bucket_idx: " << bucket_idx <<
-    // std::endl;
 }
 
 template <typename K, typename V, typename KC>
@@ -277,16 +243,9 @@ void DiskExtendibleHashTable<K, V, KC>::MigrateEntries(
         pattern = rehash & local_depth_mask;
         if (pattern == new_pattern) {
             old_bucket->RemoveAt(i);
-            // std::cout << "Migrate " << entry.first << "->" << entry.second
-            //           << std::endl;
             new_bucket->Insert(entry.first, entry.second, cmp_);
             V v{};
             new_bucket->Lookup(entry.first, v, cmp_);
-            // std::cout << "Migrate result: " << entry.first << "->" << v
-            //           << std::endl;
-            // std::cout << "found in old bucket: "
-            //           << old_bucket->Lookup(entry.first, v, cmp_) <<
-            //           std::endl;
         }
     }
 }
@@ -297,7 +256,6 @@ template <typename K, typename V, typename KC>
 auto DiskExtendibleHashTable<K, V, KC>::Remove(const K& key,
                                                Transaction* transaction)
     -> bool {
-    // std::cout << "Remove key " << key << std::endl;
     WritePageGuard header_guard = bpm_->FetchPageWrite(header_page_id_);
     auto header_page = header_guard.AsMut<ExtendibleHTableHeaderPage>();
     uint32_t hash = Hash(key);
