@@ -244,3 +244,4 @@ docs/dev
 
 # Submission zip files
 *.zip
+.hypothesis/

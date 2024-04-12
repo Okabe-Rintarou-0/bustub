@@ -50,16 +50,14 @@ auto BufferPoolManager::NewPage(page_id_t* page_id) -> Page* {
         fid = free_list_.front();
         free_list_.pop_front();
         page = &pages_[fid];
-        page->WLatch();
     }
     // Otherwise, Check if there exists some evictable page
     else if (replacer_->Evict(&fid)) {
         page = &pages_[fid];
-        page->WLatch();
         old_pid = page->page_id_;
         // Flush the evicted page if it's dirty
         if (page->is_dirty_) {
-            FlushPageInner(old_pid, false);
+            FlushPageInner(old_pid);
         }
         // Old page has been evicted
         page_table_.erase(old_pid);
@@ -73,12 +71,10 @@ auto BufferPoolManager::NewPage(page_id_t* page_id) -> Page* {
     page->ResetMemory();
     page->page_id_ = new_pid;
     page->pin_count_ = 1;
-    page->WUnlatch();
     *page_id = new_pid;
     // Mark as not evicatable
     replacer_->RecordAccess(fid);
     replacer_->SetEvictable(fid, false);
-
     return page;
 }
 
@@ -97,9 +93,7 @@ auto BufferPoolManager::FetchPage(page_id_t page_id,
         replacer_->RecordAccess(fid);
         replacer_->SetEvictable(fid, false);
         page = &pages_[fid];
-        page->WLatch();
         page->pin_count_ += 1;
-        page->WUnlatch();
         return page;
     }
 
@@ -107,16 +101,14 @@ auto BufferPoolManager::FetchPage(page_id_t page_id,
         fid = free_list_.front();
         free_list_.pop_front();
         page = &pages_[fid];
-        page->WLatch();
     }
     // Otherwise, Check if there exists some evictable page
     else if (replacer_->Evict(&fid)) {
         page = &pages_[fid];
-        page->WLatch();
         page_id_t old_pid = page->page_id_;
         // Flush the evicted page if it's dirty
         if (page->is_dirty_) {
-            FlushPageInner(old_pid, false);
+            FlushPageInner(old_pid);
         }
         // Old page has been evicted
         page_table_.erase(old_pid);
@@ -143,7 +135,6 @@ auto BufferPoolManager::FetchPage(page_id_t page_id,
     // Schedule disk request
     disk_scheduler_->Schedule(std::move(r));
     future.wait();
-    page->WUnlatch();
     return page;
 }
 
@@ -159,11 +150,9 @@ auto BufferPoolManager::UnpinPage(page_id_t page_id,
     // Otherwise, get the page
     frame_id_t fid = page_table_[page_id];
     Page* page = &pages_[fid];
-    page->WLatch();
     size_t pin_count = page->pin_count_;
     // If the page's pin count is already 0, return false
     if (pin_count == 0) {
-        page->WUnlatch();
         return false;
     }
 
@@ -175,17 +164,15 @@ auto BufferPoolManager::UnpinPage(page_id_t page_id,
         // We can flush it when we evict it if it's dirty, but not now.
         replacer_->SetEvictable(fid, true);
     }
-    page->WUnlatch();
     return true;
 }
 
 auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
     std::lock_guard<std::mutex> guard(latch_);
-    return FlushPageInner(page_id, true);
+    return FlushPageInner(page_id);
 }
 
-auto BufferPoolManager::FlushPageInner(page_id_t page_id, bool need_lock)
-    -> bool {
+auto BufferPoolManager::FlushPageInner(page_id_t page_id) -> bool {
     // No such page, return false
     if (page_id == INVALID_PAGE_ID || page_table_.count(page_id) == 0) {
         return false;
@@ -194,9 +181,6 @@ auto BufferPoolManager::FlushPageInner(page_id_t page_id, bool need_lock)
     Page* page = &pages_[fid];
     // Write into disk
     DiskRequest r;
-    if (need_lock) {
-        page->WLatch();
-    }
     page->is_dirty_ = false;
     r.data_ = page->data_;
     r.is_write_ = true;
@@ -206,16 +190,13 @@ auto BufferPoolManager::FlushPageInner(page_id_t page_id, bool need_lock)
 
     disk_scheduler_->Schedule(std::move(r));
     future.wait();
-    if (need_lock) {
-        page->WUnlatch();
-    }
     return true;
 }
 
 void BufferPoolManager::FlushAllPages() {
     std::lock_guard<std::mutex> guard(latch_);
     for (const auto& [pid, _] : page_table_) {
-        FlushPageInner(pid, true);
+        FlushPageInner(pid);
     }
 }
 
@@ -227,15 +208,12 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
     }
     frame_id_t fid = page_table_[page_id];
     Page* page = &pages_[fid];
-    page->WLatch();
     page->page_id_ = INVALID_PAGE_ID;
     page->ResetMemory();
     // It's pinned, cannot be deleted
     if (page->pin_count_ > 0) {
-        page->WUnlatch();
         return false;
     }
-    page->WUnlatch();
 
     // Replace don't need to track it
     replacer_->Remove(fid);

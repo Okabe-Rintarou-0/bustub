@@ -81,10 +81,10 @@ auto ExtendibleHTableBucketPage<K, V, KC>::Remove(const K& key, const KC& cmp)
 
 template <typename K, typename V, typename KC>
 void ExtendibleHTableBucketPage<K, V, KC>::RemoveAt(uint32_t bucket_idx) {
+    size_--;
     for (uint32_t i = bucket_idx; i < size_; i++) {
         array_[i] = array_[i + 1];
     }
-    size_--;
 }
 
 template <typename K, typename V, typename KC>

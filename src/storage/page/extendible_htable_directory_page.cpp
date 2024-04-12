@@ -23,10 +23,7 @@ namespace bustub {
 void ExtendibleHTableDirectoryPage::Init(uint32_t max_depth) {
     max_depth_ = max_depth;
     global_depth_ = 0;
-    size_t size = Size();
-    for (size_t i = 0; i < size; i++) {
-        bucket_page_ids_[i] = -1;
-    }
+    bucket_page_ids_[0] = -1;
 }
 
 auto ExtendibleHTableDirectoryPage::HashToBucketIndex(uint32_t hash) const
@@ -71,7 +68,7 @@ void ExtendibleHTableDirectoryPage::IncrGlobalDepth() {
     uint32_t mask = 0;
     mask = ~((~mask) << global_depth_);
     global_depth_++;
-    for (size_t i = prev_size; i <= curr_size; i++) {
+    for (size_t i = prev_size; i < curr_size; i++) {
         bucket_page_ids_[i] = bucket_page_ids_[i & mask];
         local_depths_[i] = local_depths_[i & mask];
     }

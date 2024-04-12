@@ -24,9 +24,7 @@ auto BasicPageGuard::operator=(BasicPageGuard&& that) noexcept
 }
 
 BasicPageGuard::~BasicPageGuard() {
-    if (page_ != nullptr) {
-        Drop();
-    }
+    Drop();
 };  // NOLINT
 
 auto BasicPageGuard::UpgradeRead() -> ReadPageGuard {
@@ -60,9 +58,7 @@ void ReadPageGuard::Drop() {
 }
 
 ReadPageGuard::~ReadPageGuard() {
-    if (guard_.page_ != nullptr) {
-        Drop();
-    }
+    Drop();
 }  // NOLINT
 
 WritePageGuard::WritePageGuard(BufferPoolManager* bpm, Page* page)
@@ -89,9 +85,7 @@ void WritePageGuard::Drop() {
 }
 
 WritePageGuard::~WritePageGuard() {
-    if (guard_.page_ != nullptr) {
-        Drop();
-    }
+    Drop();
 }  // NOLINT
 
 }  // namespace bustub
