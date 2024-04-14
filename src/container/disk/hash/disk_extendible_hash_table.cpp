@@ -307,8 +307,9 @@ auto DiskExtendibleHashTable<K, V, KC>::Remove(const K& key,
             directory_page->GetBucketPageId(split_bucket_idx);
         curr_bucket_page_id = directory_page->GetBucketPageId(bucket_idx);
         directory_page->SetLocalDepth(split_bucket_idx, split_local_depth - 1);
+        curr_local_depth--;
         uint32_t pattern =
-            directory_page->GetLocalDepthMask(bucket_idx) & bucket_idx;
+            directory_page->GetLocalDepthMask(split_bucket_idx) & bucket_idx;
         uint32_t rest_bits = 1 << (global_depth - curr_local_depth);
         uint32_t old_bucket_idx;
         for (uint32_t i = 0; i < rest_bits; i++) {
