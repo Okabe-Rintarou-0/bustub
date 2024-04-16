@@ -10,28 +10,33 @@
 
 namespace bustub {
 
-auto Optimizer::OptimizeMergeFilterScan(const AbstractPlanNodeRef &plan) -> AbstractPlanNodeRef {
-  std::vector<AbstractPlanNodeRef> children;
-  for (const auto &child : plan->GetChildren()) {
-    children.emplace_back(OptimizeMergeFilterScan(child));
-  }
-
-  auto optimized_plan = plan->CloneWithChildren(std::move(children));
-
-  if (optimized_plan->GetType() == PlanType::Filter) {
-    const auto &filter_plan = dynamic_cast<const FilterPlanNode &>(*optimized_plan);
-    BUSTUB_ASSERT(optimized_plan->children_.size() == 1, "must have exactly one children");
-    const auto &child_plan = *optimized_plan->children_[0];
-    if (child_plan.GetType() == PlanType::SeqScan) {
-      const auto &seq_scan_plan = dynamic_cast<const SeqScanPlanNode &>(child_plan);
-      if (seq_scan_plan.filter_predicate_ == nullptr) {
-        return std::make_shared<SeqScanPlanNode>(filter_plan.output_schema_, seq_scan_plan.table_oid_,
-                                                 seq_scan_plan.table_name_, filter_plan.GetPredicate());
-      }
+auto Optimizer::OptimizeMergeFilterScan(const AbstractPlanNodeRef& plan)
+    -> AbstractPlanNodeRef {
+    std::vector<AbstractPlanNodeRef> children;
+    for (const auto& child : plan->GetChildren()) {
+        children.emplace_back(OptimizeMergeFilterScan(child));
     }
-  }
 
-  return optimized_plan;
+    auto optimized_plan = plan->CloneWithChildren(std::move(children));
+
+    if (optimized_plan->GetType() == PlanType::Filter) {
+        const auto& filter_plan =
+            dynamic_cast<const FilterPlanNode&>(*optimized_plan);
+        BUSTUB_ASSERT(optimized_plan->children_.size() == 1,
+                      "must have exactly one children");
+        const auto& child_plan = *optimized_plan->children_[0];
+        if (child_plan.GetType() == PlanType::SeqScan) {
+            const auto& seq_scan_plan =
+                dynamic_cast<const SeqScanPlanNode&>(child_plan);
+            if (seq_scan_plan.filter_predicate_ == nullptr) {
+                return std::make_shared<SeqScanPlanNode>(
+                    filter_plan.output_schema_, seq_scan_plan.table_oid_,
+                    seq_scan_plan.table_name_, filter_plan.GetPredicate());
+            }
+        }
+    }
+
+    return optimized_plan;
 }
 
 }  // namespace bustub

@@ -12,6 +12,7 @@
 
 #include <memory>
 
+#include "execution/executors/filter_executor.h"
 #include "execution/executors/insert_executor.h"
 #include "execution/executors/values_executor.h"
 #include "type/type_id.h"
@@ -37,22 +38,25 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple* tuple, RID* rid) -> bool {
     if (insert_finish_) {
         return false;
     }
-    auto values_plan =
-        static_cast<const ValuesPlanNode*>(plan_->GetChildPlan().get());
-    auto raw_values = values_plan->GetValues();
+    Transaction* tx = GetExecutorContext()->GetTransaction();
     int32_t n_inserted = 0;
     std::vector<IndexInfo*> indexes =
         exec_ctx_->GetCatalog()->GetTableIndexes(table_info_->name_);
-    while (child_executor_->Next(tuple, rid)) {
+    Tuple child_tuple;
+    while (child_executor_->Next(&child_tuple, rid)) {
         TupleMeta meta{0, false};
-        std::optional<RID> rid = table_info_->table_->InsertTuple(meta, *tuple);
-        if (!rid.has_value()) {
+        std::optional<RID> rid_optional =
+            table_info_->table_->InsertTuple(meta, child_tuple);
+        if (!rid_optional.has_value()) {
             continue;
         }
-
+        *rid = rid_optional.value();
         n_inserted++;
         for (auto index : indexes) {
-            index->index_->InsertEntry(*tuple, rid.value(), nullptr);
+            Tuple key = child_tuple.KeyFromTuple(table_info_->schema_,
+                                                 index->key_schema_,
+                                                 index->index_->GetKeyAttrs());
+            index->index_->InsertEntry(key, *rid, tx);
         }
     }
     insert_finish_ = true;

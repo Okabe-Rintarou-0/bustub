@@ -21,19 +21,33 @@ SeqScanExecutor::SeqScanExecutor(ExecutorContext* exec_ctx,
 void SeqScanExecutor::Init() {
     table_oid_t table_id = plan_->GetTableOid();
     Catalog* catalog = exec_ctx_->GetCatalog();
-    TableInfo* table_info = catalog->GetTable(table_id);
+    table_info_ = catalog->GetTable(table_id);
     table_iter_ =
-        std::make_unique<TableIterator>(table_info->table_->MakeIterator());
+        std::make_unique<TableIterator>(table_info_->table_->MakeIterator());
 }
 
 auto SeqScanExecutor::Next(Tuple* tuple, RID* rid) -> bool {
     if (table_iter_->IsEnd()) {
         return false;
     }
-    *tuple = table_iter_->GetTuple().second;
-    *rid = table_iter_->GetRID();
-    ++(*table_iter_);
-    return true;
+
+    bool match_predicate{};
+    bool has_next{};
+    TupleMeta meta;
+    do {
+        auto tuple_pair = table_iter_->GetTuple();
+        *tuple = tuple_pair.second;
+        meta = tuple_pair.first;
+        *rid = table_iter_->GetRID();
+        ++(*table_iter_);
+        match_predicate =
+            !meta.is_deleted_ &&
+            (plan_->filter_predicate_ == nullptr ||
+             plan_->filter_predicate_->Evaluate(tuple, table_info_->schema_)
+                 .GetAs<bool>());
+        has_next = !table_iter_->IsEnd();
+    } while (has_next && !match_predicate);
+    return match_predicate;
 }
 
 }  // namespace bustub
