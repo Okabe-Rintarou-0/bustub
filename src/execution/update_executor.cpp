@@ -66,7 +66,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple* tuple, RID* rid) -> bool {
     }
     update_finish_ = true;
     std::vector<Value> values{Value(TypeId::INTEGER, n_updated)};
-    *tuple = Tuple(values, plan_->output_schema_.get());
+    *tuple = Tuple(values, &GetOutputSchema());
     return true;
 }
 

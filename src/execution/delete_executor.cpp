@@ -51,7 +51,7 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple* tuple, RID* rid) -> bool {
     }
     delete_finish_ = true;
     std::vector<Value> values{Value(TypeId::INTEGER, n_deleted)};
-    *tuple = Tuple(values, plan_->output_schema_.get());
+    *tuple = Tuple(values, &GetOutputSchema());
     return true;
 }
 
