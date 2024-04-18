@@ -92,10 +92,7 @@ auto NestedLoopJoinExecutor::InnerJoinTuple(Tuple* left, Tuple* right)
     }
     return Tuple{values, &GetOutputSchema()};
 }
-}  // namespace bustub
-
-auto bustub::NestedLoopJoinExecutor::LeftJoinTuple(Tuple* left, Tuple* right)
-    -> Tuple {
+auto NestedLoopJoinExecutor::LeftJoinTuple(Tuple* left, Tuple* right) -> Tuple {
     std::vector<Value> values;
     for (uint32_t idx = 0;
          idx < left_executor_->GetOutputSchema().GetColumnCount(); idx++) {
@@ -109,3 +106,4 @@ auto bustub::NestedLoopJoinExecutor::LeftJoinTuple(Tuple* left, Tuple* right)
     }
     return Tuple{values, &GetOutputSchema()};
 }
+}  // namespace bustub

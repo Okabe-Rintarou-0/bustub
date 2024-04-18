@@ -14,6 +14,7 @@
 #include "execution/expressions/comparison_expression.h"
 #include "execution/expressions/logic_expression.h"
 #include "execution/plans/abstract_plan.h"
+#include "execution/plans/nested_loop_join_plan.h"
 
 namespace bustub {
 
@@ -56,6 +57,15 @@ class Optimizer {
      */
     auto OptimizeNLJAsHashJoin(const AbstractPlanNodeRef& plan)
         -> AbstractPlanNodeRef;
+
+    auto ExtractHashJoinKeyExpressions(const NestedLoopJoinPlanNode* plan)
+        -> std::optional<std::pair<std::vector<AbstractExpressionRef>,
+                                   std::vector<AbstractExpressionRef>>>;
+
+    auto ExtractHashJoinKeyExpressions(
+        const AbstractExpressionRef& expr,
+        std::vector<AbstractExpressionRef>& left_exprs,
+        std::vector<AbstractExpressionRef>& right_exprs) -> bool;
 
     /**
      * @brief optimize nested loop join into index join.
